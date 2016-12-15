@@ -1,6 +1,6 @@
 {
   "name": "aws-lambda-config",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A module to provide config (JSON document) to AWS Lambda functions",
   "main": "./index.js",
   "directories": {
