@@ -1,30 +1,25 @@
 # aws-lambda-config
-A module to provide config/environment variables to AWS Lambda functions
+A module to provide config (JSON document) to AWS Lambda functions
 
 ## Motivation
-AWS Lambda doesn't support environment variables, which makes it difficult to share the same code across
-multiple instances of the same function (for example: prod and test instances, or using the same function
-across multiple accounts, or sharing the function via open source). For example, if the Lambda function
-pushes files to a S3 bucket, you might not want multiple instances of the same function pushing to the
-same bucket. So the S3 bucket will need to be configured for each instance of the function. This is
-currently solved by possibly including the config file in the .zip file used by the Lambda function - but
-then you need to upload (and manage) multiple .zip files for the multiple functions. If you make a change to
-the code, then you need to re-upload those one-off .zip files (each with different config) all over again.
-Clearly, it would be nice to be able to deploy a Lambda function with config specific to its instance. Then
-you could reference a common .zip file, and if the code is updated you simply point the function at the new
-version of the .zip file.
+AWS Lambda environment variable values do not allow commas (what?) and thus cannot support a robust JSON
+document for function config; they also don't support native JSON documents (only support a string that
+could be parsed into JSON). But JSON-ish support can be achieved by encrypting the value (which might be
+desired anyway), so the commas are not included in the "value". This small library wraps the concerns above
+(decryption + JSON parsing) into a single call that allows the client function to simply deal with a JSON
+config document.
 
-This module enables that functionality by making one assumption: you must store the config file (named the
-same as your Lambda function, with a '.json' extension) in a S3 bucket with the following format: 
-aws.lambda.{your-region}.{your-account-id}.config . Unfortunately Lambda functions don't expose much
-metadata, so we need to be able to find the config file using simply the ARN of the function (where is where
-the bucket naming comes from) and the function name (used for the config filename).
+If your Lambda function config a) does not need to be encrypted and b) fits neatly into key-value pairs
+(i.e. not a nested document), it is recommended to avoid this module and simply use Lambda Environment
+Variables directly. There is some overhead in both processing time and cost for using the KMS key - so if
+your function does not need it, don't add that overhead.
 
 
 ## Usage
-1. Create a config bucket in your account in this format: aws.lambda.{your-region}.{your-account-id}.config
-2. Upload a JSON file containing your config (see below for encryption options)
-3. From your Lambda function, call either getConfig (a config file is required) or getOptionalConfig (no error
+1. Include a valid JSON document in an environment variable for your Lambda function, and encrypt it using
+   a KMS key. Alternatively, use the [command-line tool](bin/put-config) to upload new or updated config to
+   an existing function.
+2. From your Lambda function, call either getConfig (a config file is required) or getOptionalConfig (no error
    if the config file is missing) and get the config back as a JSON object.
 
 ```
@@ -40,16 +35,6 @@ exports.handler = function(event, context) {
 ```
 
 
-## Encrypting the config file
-This library uses [node-s3-encryption-client](https://github.com/gilt/node-s3-encryption-client), so it
-supports client-side encryption of the config file. To encrypt a config file and upload to S3 please see
-[the command line script](https://github.com/gilt/node-s3-encryption-client/blob/master/bin/s3-put-encrypted)
-there.
-
-If you only need to encrypt the config file on the server side, you simply manage that in S3 and this
-client isn't affected.
-
-
 ## Design Decisions
 
 ### Promises
@@ -57,6 +42,13 @@ Yes, Promises are much preferred over callbacks. But I decided to implement this
 allows people to use it either with callbacks or Promises (by promisifying it using something like
 [Bluebird](http://bluebirdjs.com/), which is what I personall will do when using this in other projects). Plus,
 callbacks simplify the code and tests here.
+
+
+### Config JSON
+Recommended best practice is to keep the config JSON checked in to a code repository with the Lambda function
+(or in a central config repo). Because of this, the [included command line tool](bin/put-config) expects the
+config JSON to be loaded from a file in your file system. To encourage this, there is not a config parameter
+that accepts the JSON string directly.
 
 
 ## License

@@ -1,0 +1,98 @@
+#!/bin/bash
+PROGRAM_NAME="${0##*/}"
+
+function usage
+{
+   echo "$PROGRAM_NAME -n lambda-function-name -c config-variable-name -f file-name -k kms-key -p aws-profile"
+   echo "where: "
+   echo "       -c config-variable-name => the name of the config variable used by the function; defaults to 'config'"
+   echo "       -f file-name            => file to read config JSON from"
+   echo "       -k kms-key              => id of the KMS key to use when encrypting the file; can be the ARN or alias"
+   echo "       -n lambda-function-name => name of the target lambda function"
+   echo "       -p profile-name         => AWS profile name; defaults to 'default'"
+   echo
+}
+
+LAMBDA_FUNCTION_NAME=""
+CONFIG_VAR_NAME=""
+INPUT_FILE=""
+KMS_KEY_ID=""
+AWS_PROFILE=""
+TMP_FILE=$(mktemp -t tmp)
+
+while getopts ":c:f:k:n:p:h" opt
+do
+        case $opt in
+            c)  
+                CONFIG_VAR_NAME="$OPTARG"
+                ;;  
+            f)  
+                INPUT_FILE="$OPTARG"
+                ;;  
+            k) 
+                KMS_KEY_ID="$OPTARG"
+                ;;
+            n)  
+                LAMBDA_FUNCTION_NAME="$OPTARG"
+                ;;  
+            p)  
+                AWS_PROFILE="$OPTARG"
+                ;;  
+            :)  echo "ERROR ($PROGRAM_NAME): Option $OPTARG is missing an argument"
+                 exit 2
+                ;;  
+
+            \?) echo "ERROR ($PROGRAM_NAME): Option $OPTARG is an unknown option"
+                usage
+                exit 3
+                ;;
+
+            h|*)
+                usage
+                exit 1
+                ;;
+        esac
+done
+
+shift $((OPTIND - 1))
+
+if [[ "$AWS_PROFILE" == "" ]]
+then
+    AWS_PROFILE="default"
+fi
+
+if [[ "$CONFIG_VAR_NAME" == "" ]]
+then
+    CONFIG_VAR_NAME="config"
+fi
+
+if [[ "$INPUT_FILE" == "" ]]
+then
+    echo "ERROR ($PROGRAM_NAME): local file '$INPUT_FILE' cannot be empty"
+    usage
+    exit 2
+fi
+
+if [ ! -f "$INPUT_FILE" ]
+then
+    echo "ERROR ($PROGRAM_NAME): local file '$INPUT_FILE' not found"
+    usage
+    exit 4
+fi
+
+if [[ "$KMS_KEY_ID" == "" ]]
+then
+    echo "ERROR ($PROGRAM_NAME): KMS key id '$KMS_KEY_ID' cannot be empty"
+    usage
+    exit 2
+fi
+
+if [[ "$LAMBDA_FUNCTION_NAME" == "" ]]
+then
+    echo "ERROR ($PROGRAM_NAME): Lambda function name '$LAMBDA_FUNCTION_NAME' cannot be empty"
+    usage
+    exit 2
+fi
+
+ENCRYPTED="$(aws kms encrypt --profile $AWS_PROFILE --key-id $KMS_KEY_ID --plaintext "$(< $INPUT_FILE)" --query CiphertextBlob)"
+aws lambda update-function-configuration --profile $AWS_PROFILE --function-name $LAMBDA_FUNCTION_NAME --environment Variables={$CONFIG_VAR_NAME=$ENCRYPTED}

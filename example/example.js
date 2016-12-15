@@ -1,7 +1,7 @@
 var conf = require('../index');
 
 exports.configExample = function(event, context) {
-  conf.getConfig(context, function(err, config) {
+  conf.getConfig('config', function(err, config) {
     if (err) {
       console.log(err);
       throw err;
@@ -13,7 +13,7 @@ exports.configExample = function(event, context) {
 }
 
 exports.optionalConfigExample = function(event, context) {
-  conf.getOptionalConfig(context, function(err, config) {
+  conf.getOptionalConfig('config', function(err, config) {
     if (err) {
       console.log(err);
       throw err;

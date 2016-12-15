@@ -1,69 +1,100 @@
 var assert = require('assert'),
     sinon = require('sinon'),
-    AWS = require('aws-sdk'),
-    context = require('aws-lambda-mock-context');
+    AWS = require('aws-sdk');
 
 describe('lambdaConfig', function() {
-  var s3 = {'getObject': function(){}};
+  var kms = {
+    'cache': {},
+    'decrypt': function(params, callback){
+      if (this.cache[params.CiphertextBlob]) {
+        callback(null, {Plaintext: this.cache[params.CiphertextBlob]});
+      } else {
+        callback(new Error('decrypt error'), null);
+      }
+    },
+    'put': function(key, value) {
+      this.cache[new Buffer(key, 'base64')] = value;
+    }
+  };
   var lambdaConfig;
-  const ctx = context({
-    region: "us-east-1",
-    account: "1234567890",
-    functionName: "test"
-  });
 
   before(function() {
-    sinon.stub(AWS, 'S3').returns(s3);
+    sinon.stub(AWS, 'KMS').returns(kms);
     delete require.cache[require.resolve('../index')];
     lambdaConfig = require('../index');
   });
 
   after(function() {
-    AWS.S3.restore();
-  });
-
-  describe('#getConfigBucket()', function() {
-    it('should find the bucket based on the function\'s ARN', function() {
-      assert.equal(lambdaConfig.getConfigBucket('arn:aws:lambda:us-east-1:1234567890:function:test'), 'aws.lambda.us-east-1.1234567890.config');
-    });
-
-    it('should be case-insensitive', function() {
-      assert.equal(lambdaConfig.getConfigBucket('ARN:aws:lambda:us-east-1:1234567890:function:test'), 'aws.lambda.us-east-1.1234567890.config');
-      assert.equal(lambdaConfig.getConfigBucket('arn:aws:lambda:us-east-1:1234567890:Function:test'), 'aws.lambda.us-east-1.1234567890.config');
-      assert.equal(lambdaConfig.getConfigBucket('arn:aws:Lambda:us-east-1:1234567890:function:test'), 'aws.lambda.us-east-1.1234567890.config');
-    });
-
-    it('should throw an exception if the ARN is invalid', function() {
-      assert.throws(function() { lambdaConfig.getConfigBucket('invalid') }, /Invalid ARN/);
-      assert.throws(function() { lambdaConfig.getConfigBucket('arn:aws:lambda:us-east-1:1234567890') }, /Invalid ARN/);
-      assert.throws(function() { lambdaConfig.getConfigBucket('aws:lambda:us-east-1:1234567890:function:test') }, /Invalid ARN/);
-    });
+    AWS.KMS.restore();
   });
 
   describe('#getConfig()', function() {
     afterEach(function() {
-      s3.getObject.restore();
+      kms.cache = {};
     });
 
-    it('should work when the file exists', function() {
-      sinon
-        .stub(s3, 'getObject')
-        .yields(null, {"Body": "{\"foo\":\"bar\",\"baz\":1}"});
+    it('should work when the config exists', function() {
+      kms.put('123456789', '{"foo": "bar","baz":1}');
+      process.env['config01'] = '123456789';
 
-      lambdaConfig.getConfig(ctx, function(err, config) {
+      lambdaConfig.getConfig('config01', function(err, config) {
         assert.equal(err, null);
         assert.equal(config.foo, "bar");
         assert.equal(config.baz, 1);
       });
     });
 
-    it('should fail when the file is missing', function() {
-      sinon
-        .stub(s3, 'getObject')
-        .yields({'code': 'NoSuchKey', 'message': 'Key not found'}, null);
+    it('should pull from cache on subsequent calls', function() {
+      kms.put('123456789', '{"foo": "bar","baz":1}');
+      process.env['config05'] = '123456789';
 
-      lambdaConfig.getConfig(ctx, function(err, config) {
-        assert.deepEqual(err, {'code': 'NoSuchKey', 'message': 'Key not found'});
+      lambdaConfig.getConfig('config05', function(err, config) {
+        kms.cache = {};
+        process.env['config05'] = null;
+        lambdaConfig.getConfig('config05', function(err, config) {
+          assert.equal(err, null);
+          assert.equal(config.foo, "bar");
+          assert.equal(config.baz, 1);
+        });
+      });
+    });
+
+    it('should default to "config" as the name of the environment variable', function() {
+      kms.put('123456789', '{"foo": "bar","baz":1}');
+      process.env['config'] = '123456789';
+
+      lambdaConfig.getConfig(undefined, function(err, config) {
+        assert.equal(err, null);
+        assert.equal(config.foo, "bar");
+        assert.equal(config.baz, 1);
+      });
+    });
+
+    it('should fail on invalid JSON config', function() {
+      kms.put('123456789', 'invalid');
+      process.env['config06'] = '123456789';
+
+      lambdaConfig.getConfig('config06', function(err, config) {
+        assert.equal(err, 'SyntaxError: Unexpected token i');
+        assert.equal(config, null);
+      });
+    });
+
+    it('should fail if KMS fails', function() {
+      var decrypt = kms.decrypt;
+      kms.decrypt = function(params, callback) { callback(new Error('There was a problem'), null) };
+      process.env['config07'] = '123456789';
+
+      lambdaConfig.getConfig('config07', function(err, config) {
+        assert.equal(err, 'Error: There was a problem');
+        assert.equal(config, null);
+        kms.decrypt = decrypt;
+      });
+    });
+
+    it('should fail when the config is missing', function() {
+      lambdaConfig.getConfig('config02', function(err, config) {
+        assert.equal(err, 'Error: Required config not found in environment variable [config02]');
         assert.equal(config, null);
       });
     });
@@ -71,28 +102,23 @@ describe('lambdaConfig', function() {
 
   describe('#getOptionalConfig()', function() {
     afterEach(function() {
-      s3.getObject.restore();
+      kms.cache = {};
     });
 
     it('should work when the file exists', function() {
-      sinon
-        .stub(s3, 'getObject')
-        .yields(null, {"Body": "{\"foo\":\"bar\",\"baz\":1}"});
+      kms.put('123456789', '{"foo": "bar","baz":1}');
+      process.env['config03'] = '123456789';
 
-      lambdaConfig.getOptionalConfig(ctx, function(err, config) {
+      lambdaConfig.getOptionalConfig('config03', function(err, config) {
         assert.equal(config.foo, "bar");
         assert.equal(config.baz, 1);
       });
     });
 
     it('should work when the file is missing', function() {
-      sinon
-        .stub(s3, 'getObject')
-        .yields({'code': 'NoSuchKey'}, null);
-
-      lambdaConfig.getOptionalConfig(ctx, function(err, config) {
+      lambdaConfig.getOptionalConfig('config04', function(err, config) {
         assert.equal(err, null);
-        assert.equal(config, null);
+        assert.deepEqual(config, {});
       });
     });
   });
