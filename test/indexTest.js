@@ -31,13 +31,15 @@ describe('lambdaConfig', function() {
   describe('#getConfig()', function() {
     afterEach(function() {
       kms.cache = {};
+      lambdaConfig.clearConfig('config');
+      delete process.env['config'];
     });
 
     it('should work when the config exists', function() {
       kms.put('123456789', '{"foo": "bar","baz":1}');
-      process.env['config01'] = '123456789';
+      process.env['config'] = '123456789';
 
-      lambdaConfig.getConfig('config01', function(err, config) {
+      lambdaConfig.getConfig('config', function(err, config) {
         assert.equal(err, null);
         assert.equal(config.foo, "bar");
         assert.equal(config.baz, 1);
@@ -46,12 +48,12 @@ describe('lambdaConfig', function() {
 
     it('should pull from cache on subsequent calls', function() {
       kms.put('123456789', '{"foo": "bar","baz":1}');
-      process.env['config05'] = '123456789';
+      process.env['config'] = '123456789';
 
-      lambdaConfig.getConfig('config05', function(err, config) {
+      lambdaConfig.getConfig('config', function(err, config) {
         kms.cache = {};
-        process.env['config05'] = null;
-        lambdaConfig.getConfig('config05', function(err, config) {
+        process.env['config'] = null;
+        lambdaConfig.getConfig('config', function(err, config) {
           assert.equal(err, null);
           assert.equal(config.foo, "bar");
           assert.equal(config.baz, 1);
@@ -72,9 +74,9 @@ describe('lambdaConfig', function() {
 
     it('should fail on invalid JSON config', function() {
       kms.put('123456789', 'invalid');
-      process.env['config06'] = '123456789';
+      process.env['config'] = '123456789';
 
-      lambdaConfig.getConfig('config06', function(err, config) {
+      lambdaConfig.getConfig('config', function(err, config) {
         assert.equal(err, 'SyntaxError: Unexpected token i');
         assert.equal(config, null);
       });
@@ -83,9 +85,9 @@ describe('lambdaConfig', function() {
     it('should fail if KMS fails', function() {
       var decrypt = kms.decrypt;
       kms.decrypt = function(params, callback) { callback(new Error('There was a problem'), null) };
-      process.env['config07'] = '123456789';
+      process.env['config'] = '123456789';
 
-      lambdaConfig.getConfig('config07', function(err, config) {
+      lambdaConfig.getConfig('config', function(err, config) {
         assert.equal(err, 'Error: There was a problem');
         assert.equal(config, null);
         kms.decrypt = decrypt;
@@ -93,8 +95,8 @@ describe('lambdaConfig', function() {
     });
 
     it('should fail when the config is missing', function() {
-      lambdaConfig.getConfig('config02', function(err, config) {
-        assert.equal(err, 'Error: Required config not found in environment variable [config02]');
+      lambdaConfig.getConfig('config', function(err, config) {
+        assert.equal(err, 'Error: Required config not found in environment variable [config]');
         assert.equal(config, null);
       });
     });
@@ -103,20 +105,22 @@ describe('lambdaConfig', function() {
   describe('#getOptionalConfig()', function() {
     afterEach(function() {
       kms.cache = {};
+      lambdaConfig.clearConfig('config');
+      delete process.env['config'];
     });
 
     it('should work when the file exists', function() {
       kms.put('123456789', '{"foo": "bar","baz":1}');
-      process.env['config03'] = '123456789';
+      process.env['config'] = '123456789';
 
-      lambdaConfig.getOptionalConfig('config03', function(err, config) {
+      lambdaConfig.getOptionalConfig('config', function(err, config) {
         assert.equal(config.foo, "bar");
         assert.equal(config.baz, 1);
       });
     });
 
     it('should work when the file is missing', function() {
-      lambdaConfig.getOptionalConfig('config04', function(err, config) {
+      lambdaConfig.getOptionalConfig('config', function(err, config) {
         assert.equal(err, null);
         assert.deepEqual(config, {});
       });

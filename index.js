@@ -40,3 +40,8 @@ exports.getConfig = function(configVarName, callback) {
 exports.getOptionalConfig = function(configVarName, callback) {
   return getConfig(configVarName, false, callback);
 }
+
+// To be used mostly for unit testing.
+exports.clearConfig = function(configVarName) {
+  delete jsonConfig[configVarName];
+}
