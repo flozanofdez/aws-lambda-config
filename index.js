@@ -1,11 +1,13 @@
 const AWS = require('aws-sdk'),
       kms = new AWS.KMS();
 
-var jsonConfig = {};
+var jsonConfig = {},
+    jsonConfigTimestamps = {},
+    cacheValidForMs = 300000;
 
 function getConfig(configVarName, required, callback) {
   configVarName = configVarName || 'config';
-  if (jsonConfig[configVarName]) {
+  if (jsonConfig[configVarName] && !isConfigStale(configVarName)) {
     callback(null, jsonConfig[configVarName]);
   } else {
     var encrypted = process.env[configVarName];
@@ -17,6 +19,7 @@ function getConfig(configVarName, required, callback) {
           var decrypted = data.Plaintext.toString('ascii');
           try {
             jsonConfig[configVarName] = JSON.parse(decrypted);
+            jsonConfigTimestamps[configVarName] = new Date();
             callback(null, jsonConfig[configVarName]);
           } catch (e) {
             callback(e, null);
@@ -33,6 +36,15 @@ function getConfig(configVarName, required, callback) {
   }
 }
 
+function isConfigStale(configVarName) {
+  if (jsonConfigTimestamps[configVarName]) {
+    var d = jsonConfigTimestamps[configVarName];
+    d = new Date(d.getTime() + cacheValidForMs);
+    return d < (new Date());
+  }
+  return true;
+}
+
 exports.getConfig = function(configVarName, callback) {
   return getConfig(configVarName, true, callback);
 }
@@ -44,4 +56,12 @@ exports.getOptionalConfig = function(configVarName, callback) {
 // To be used mostly for unit testing.
 exports.clearConfig = function(configVarName) {
   delete jsonConfig[configVarName];
+  delete jsonConfigTimestamps[configVarName];
+}
+
+// Use this to set the expiration interval for cached config
+// values. Default is 5 minutes. The cache prevents calling
+// KMS upon every access of config.
+exports.setCacheValidFor = function(millis) {
+  cacheValidForMs = millis;
 }

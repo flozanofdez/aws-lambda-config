@@ -35,6 +35,19 @@ exports.handler = function(event, context) {
 ```
 
 
+### Cache invalidation
+For speed/efficiency, this library automatically stores previously-loaded config into a local (in memory)
+variable for a default of 5 minutes. Obviously, this is dependent on whether or not Lambda still has the
+function loaded into memory - but if your function is executed frequently enough to avoid cold starts,
+the config will be cached.
+
+You can optionally set the maximum amount of time that config values remain in the in-memory cache by calling
+`conf.setCacheValidFor()` with the number of milliseconds that you would like the values to remain in memory
+without being reloaded...actually I'm realizing that this entire commit isn't necessary because the function
+will naturally be kicked out of memory as soon as the ENV variables are changed. So there will never be any
+reason to replace out the in-memory values.
+
+
 ## Design Decisions
 
 ### Promises

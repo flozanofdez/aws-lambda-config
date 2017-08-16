@@ -77,7 +77,7 @@ describe('lambdaConfig', function() {
       process.env['config'] = '123456789';
 
       lambdaConfig.getConfig('config', function(err, config) {
-        assert.equal(err, 'SyntaxError: Unexpected token i');
+        assert.equal(err, 'SyntaxError: Unexpected token i in JSON at position 0');
         assert.equal(config, null);
       });
     });
@@ -125,5 +125,48 @@ describe('lambdaConfig', function() {
         assert.deepEqual(config, {});
       });
     });
+  });
+
+  describe('#setCacheValidFor()', function() {
+    afterEach(function() {
+      kms.cache = {};
+      lambdaConfig.clearConfig('config');
+      lambdaConfig.setCacheValidFor(300000);
+      delete process.env['config'];
+    });
+
+    it('should not read from KMS on second attempt within the cache validity window', function() {
+      kms.put('123456789', '{"foo": "bar","baz":1}');
+      process.env['config'] = '123456789';
+
+      lambdaConfig.getConfig('config', function(err, config) {
+        assert.equal(config.foo, "bar");
+        assert.equal(config.baz, 1);
+        kms.cache = {};
+        lambdaConfig.getConfig('config', function(err, config) {
+          assert.equal(config.foo, "bar");
+          assert.equal(config.baz, 1);
+        });
+      });
+    });
+
+    it('should read from KMS on second attempt outside the cache validity window', function() {
+      kms.put('123456789', '{"foo": "bar","baz":1}');
+      process.env['config'] = '123456789';
+      lambdaConfig.setCacheValidFor(100);
+
+      lambdaConfig.getConfig('config', function(err, config) {
+        assert.equal(config.foo, "bar");
+        assert.equal(config.baz, 1);
+        kms.cache = {};
+        var waitUntil = new Date(new Date().getTime() + 110);
+        while(waitUntil > new Date()){}
+        lambdaConfig.getConfig('config', function(err, config) {
+          assert.equal(err, 'Error: decrypt error');
+          assert.equal(config, null);
+        });
+      });
+    });
+
   });
 });
